@@ -37,6 +37,8 @@ type Printer interface {
 	// please refer the manual of the implementation) may should be avoid, since
 	// the caller key/value pair may be added by the implementation.
 	With(key string, value interface{}) Printer
+	// WithContext set or override the context.Context carried by the Printer.
+	WithContext(ctx context.Context) Printer
 }
 
 // Logger represents a logger that can provide Printers. A Logger has a name,
@@ -48,13 +50,13 @@ type Logger interface {
 	// Printer get a Printer wrapping the provided context.Context.
 	// If the Level of the Logger is ClosedLevel, nothing will be print when
 	// calling the Print functions of returned Printer.
-	Printer(ctx context.Context) Printer
+	Printer(ctx ...context.Context) Printer
 	// Name returns the name of the Logger.
 	Name() string
 	// AtLevel get a Printer wrapping the provided context.Context at specified
 	// logging Level. If the Level is not enabled to the Logger, nothing will be
 	// print when calling the Print functions of returned Printer.
-	AtLevel(level Level, ctx context.Context) Printer
+	AtLevel(level Level, ctx ...context.Context) Printer
 }
 
 // Manager represents a Logger manager. It provides Logger by name.

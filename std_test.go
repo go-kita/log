@@ -100,6 +100,46 @@ func TestPrinter_With(t *testing.T) {
 	}
 }
 
+func TestPrinter_WithContext(t *testing.T) {
+	w := &bytes.Buffer{}
+	mng := NewManager(stdlog.New(w, "", 0))
+	ctx := context.WithValue(context.Background(), "abc", "xyz")
+	printer := mng.Get("").Printer().WithContext(ctx)
+	var v Valuer
+	v = func(ctx context.Context) interface{} {
+		if ctx == nil {
+			return ""
+		}
+		if value := ctx.Value("abc"); value != nil {
+			return value
+		}
+		return ""
+	}
+	printer.With("abc", v)
+	printer.Print("abc")
+	expect := "level=INFO logger= abc=xyz abc\n"
+	actual := w.String()
+	if expect != actual {
+		t.Errorf("expect %s, got %s", expect, actual)
+	}
+	w.Reset()
+	printer.WithContext(context.Background())
+	printer.Print("abc")
+	expect = "level=INFO logger= abc= abc\n"
+	actual = w.String()
+	if expect != actual {
+		t.Errorf("expect %s, got %s", expect, actual)
+	}
+	w.Reset()
+	printer.WithContext(context.Background())
+	printer.Print("abc")
+	expect = "level=INFO logger= abc= abc\n"
+	actual = w.String()
+	if expect != actual {
+		t.Errorf("expect %s, got %s", expect, actual)
+	}
+}
+
 func TestLogger_level(t *testing.T) {
 	w := &bytes.Buffer{}
 	mng := NewManager(stdlog.New(w, "", 0),

@@ -100,6 +100,11 @@ func (p *printer) With(key string, value interface{}) Printer {
 	return p
 }
 
+func (p *printer) WithContext(ctx context.Context) Printer {
+	p.ctx = ctx
+	return p
+}
+
 // logger is the builtin implementation of Logger
 type logger struct {
 	out     *log.Logger
@@ -131,15 +136,19 @@ func (l *logger) LevelEnabled(level Level) bool {
 	return ll != ClosedLevel && ll <= level
 }
 
-func (l *logger) Printer(ctx context.Context) Printer {
-	return l.AtLevel(l.level(), ctx)
+func (l *logger) Printer(ctx ...context.Context) Printer {
+	return l.AtLevel(l.level(), ctx...)
 }
 
 func (l *logger) Name() string {
 	return l.name
 }
 
-func (l *logger) AtLevel(level Level, ctx context.Context) Printer {
+func (l *logger) AtLevel(level Level, ctx ...context.Context) Printer {
+	var ctx_ context.Context
+	if len(ctx) > 0 {
+		ctx_ = ctx[len(ctx)-1]
+	}
 	return &printer{
 		logger: l,
 		level:  level,
@@ -147,7 +156,7 @@ func (l *logger) AtLevel(level Level, ctx context.Context) Printer {
 			{LevelKey, level},
 			{LoggerKey, l.name},
 		},
-		ctx: ctx,
+		ctx: ctx_,
 		bufPool: &sync.Pool{
 			New: func() interface{} {
 				return &bytes.Buffer{}
