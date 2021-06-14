@@ -1,5 +1,5 @@
 [![Language](https://img.shields.io/badge/Language-Go-blue.svg)](https://golang.org/)
-[![Build Status](https://github.com/go-kita/log/workflows/Log/badge.svg)](https://github.com/go-kita/log/actions)
+[![Log](https://github.com/go-kita/log/actions/workflows/log.ci.yaml/badge.svg)](https://github.com/go-kita/log/actions/workflows/log.ci.yaml)
 [![GoDoc](https://pkg.go.dev/badge/github.com/go-kita/log/v2)](https://pkg.go.dev/github.com/go-kita/log/v2)
 [![Go Report Card](https://goreportcard.com/badge/github.com/go-kita/log)](https://goreportcard.com/report/github.com/go-kita/log)
 
