@@ -48,8 +48,9 @@ type Logger interface {
 	// level.
 	LevelEnabled(level Level) bool
 	// Printer get a Printer wrapping the provided context.Context.
-	// If the Level of the Logger is ClosedLevel, nothing will be print when
-	// calling the Print functions of returned Printer.
+	// The Level of Printer returned is InfoLevel.
+	// If Logger does not enable InfoLevel, nothing will be print when calling
+	// the Print functions of returned Printer.
 	Printer(ctx ...context.Context) Printer
 	// Name returns the name of the Logger.
 	Name() string

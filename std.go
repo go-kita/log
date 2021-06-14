@@ -137,7 +137,7 @@ func (l *logger) LevelEnabled(level Level) bool {
 }
 
 func (l *logger) Printer(ctx ...context.Context) Printer {
-	return l.AtLevel(l.level(), ctx...)
+	return l.AtLevel(InfoLevel, ctx...)
 }
 
 func (l *logger) Name() string {
