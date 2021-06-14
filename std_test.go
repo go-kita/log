@@ -226,10 +226,19 @@ func TestManager_Level(t *testing.T) {
 	w := &bytes.Buffer{}
 	mng := NewManager(stdlog.New(w, "", 0))
 	mng.Level("", WarnLevel)
-	mng.Get("").Printer(context.Background()).Println("abc")
+	root := mng.Get("")
+	root.AtLevel(WarnLevel, context.Background()).Println("abc")
 	expect := "level=WARN logger= abc\n"
 	got := w.String()
 	if expect != got {
 		t.Errorf("expect %q, got %q", expect, got)
 	}
+	w.Reset()
+	root.Printer(context.Background()).Println("abc")
+	expect = ""
+	got = w.String()
+	if expect != got {
+		t.Errorf("expect %q, got %q", expect, got)
+	}
+
 }
