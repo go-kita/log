@@ -36,7 +36,7 @@ type Field struct {
 type Output interface {
 	// Output output msg, fields at a specific level to the underlying
 	// logging / printing infrastructures.
-	Output(ctx context.Context, level Level, msg string, fields []Field)
+	Output(ctx context.Context, level Level, msg string, fields []Field, addCallerSkip int)
 }
 
 // stdOutput is an Output implementation based on Go SDK log.Logger.
@@ -58,7 +58,7 @@ func NewStdOutput(out *log.Logger) Output {
 	}
 }
 
-func (s *stdOutput) Output(ctx context.Context, _ Level, msg string, fields []Field) {
+func (s *stdOutput) Output(ctx context.Context, _ Level, msg string, fields []Field, addCallerSkip int) {
 	buf := s.bufPool.Get().(*bytes.Buffer)
 	defer func() {
 		buf.Reset()
@@ -68,7 +68,7 @@ func (s *stdOutput) Output(ctx context.Context, _ Level, msg string, fields []Fi
 		_, _ = fmt.Fprintf(buf, "%s=%v ", field.Key, Value(ctx, field.Value))
 	}
 	_, _ = fmt.Fprint(buf, msg)
-	_ = s.out.Output(2, buf.String())
+	_ = s.out.Output(addCallerSkip+3, buf.String())
 }
 
 // stdPrinter is the builtin implementation of Printer.
@@ -87,7 +87,7 @@ func (p *stdPrinter) Print(v ...interface{}) {
 		p.bufPool.Put(buf)
 	}()
 	_, _ = fmt.Fprint(buf, v...)
-	p.output.Output(p.ctx, p.level, buf.String(), p.fields)
+	p.output.Output(p.ctx, p.level, buf.String(), p.fields, 0)
 }
 
 func (p *stdPrinter) Printf(format string, v ...interface{}) {
@@ -97,7 +97,7 @@ func (p *stdPrinter) Printf(format string, v ...interface{}) {
 		p.bufPool.Put(buf)
 	}()
 	_, _ = fmt.Fprintf(buf, format, v...)
-	p.output.Output(p.ctx, p.level, buf.String(), p.fields)
+	p.output.Output(p.ctx, p.level, buf.String(), p.fields, 0)
 }
 
 func (p *stdPrinter) Println(v ...interface{}) {
@@ -108,7 +108,7 @@ func (p *stdPrinter) Println(v ...interface{}) {
 	}()
 	buf.WriteString(fmt.Sprintln(v...))
 	buf.Truncate(buf.Len() - 1)
-	p.output.Output(p.ctx, p.level, buf.String(), p.fields)
+	p.output.Output(p.ctx, p.level, buf.String(), p.fields, 0)
 }
 
 func (p *stdPrinter) With(key string, value interface{}) Printer {

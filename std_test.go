@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -168,23 +169,12 @@ func TestLogger_AtLevel(t *testing.T) {
 	}
 }
 
-//func TestManager_Level(t *testing.T) {
-//	w := &bytes.Buffer{}
-//	mng := NewManager(stdlog.New(w, "", 0))
-//	mng.Level("", WarnLevel)
-//	root := mng.Get("")
-//	root.AtLevel(WarnLevel, context.Background()).Println("abc")
-//	expect := "level=WARN logger= abc\n"
-//	got := w.String()
-//	if expect != got {
-//		t.Errorf("expect %q, got %q", expect, got)
-//	}
-//	w.Reset()
-//	root.Printer(context.Background()).Println("abc")
-//	expect = ""
-//	got = w.String()
-//	if expect != got {
-//		t.Errorf("expect %q, got %q", expect, got)
-//	}
-//
-//}
+func TestCaller(t *testing.T) {
+	w := &bytes.Buffer{}
+	logger := NewStdLogger("", NewStdOutput(log.New(w, "", log.Lshortfile)))
+	logger.AtLevel(InfoLevel, context.Background()).Print()
+	got := w.String()
+	if !strings.Contains(got, "_test.go") {
+		t.Errorf("expect contains current test file name, but got: %q", got)
+	}
+}
