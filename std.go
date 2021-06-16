@@ -7,86 +7,111 @@ import (
 	"log"
 	"strings"
 	"sync"
-
-	"github.com/cornelk/hashmap"
+	"sync/atomic"
+	"unsafe"
 )
 
 const (
-	LevelKey  = "level"
+	// LevelKey is field key for logging Level.
+	LevelKey = "level"
+	// LoggerKey is field key for logger name.
 	LoggerKey = "logger"
 )
 
 func init() {
-	UseManager(NewManager(log.Default()))
+	UseLevelStore(NewStdLevelStore())
+	UseProvider(NewStdLoggerProvider(NewStdOutput(log.Default())))
 }
 
-// field represent a key/value pair.
-type field struct {
+// Field represent a key/value pair.
+type Field struct {
 	// Key is the key, string.
 	Key string
 	// Value is the value, may be a Valuer.
 	Value interface{}
 }
 
-// printer is the builtin implementation of Printer.
-type printer struct {
-	logger  *logger
+// Output is the real final output of builtin standard Logger and Printer.
+// It calls the underlying logging / printing infrastructures.
+type Output interface {
+	// Output output msg, fields at a specific level to the underlying
+	// logging / printing infrastructures.
+	Output(ctx context.Context, level Level, msg string, fields []Field)
+}
+
+// stdOutput is an Output implementation based on Go SDK log.Logger.
+type stdOutput struct {
+	out     *log.Logger
+	bufPool *sync.Pool
+}
+
+// NewStdOutput create a Output based on Go SDK log.Logger.
+// It output to the provided log.Logger.
+func NewStdOutput(out *log.Logger) Output {
+	return &stdOutput{
+		out: out,
+		bufPool: &sync.Pool{
+			New: func() interface{} {
+				return &bytes.Buffer{}
+			},
+		},
+	}
+}
+
+func (s *stdOutput) Output(ctx context.Context, _ Level, msg string, fields []Field) {
+	buf := s.bufPool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		s.bufPool.Put(buf)
+	}()
+	for _, field := range fields {
+		_, _ = fmt.Fprintf(buf, "%s=%v ", field.Key, Value(ctx, field.Value))
+	}
+	_, _ = fmt.Fprint(buf, msg)
+	_ = s.out.Output(2, buf.String())
+}
+
+// stdPrinter is the builtin implementation of Printer.
+type stdPrinter struct {
+	output  Output
 	level   Level
-	fields  []field
+	fields  []Field
 	ctx     context.Context
 	bufPool *sync.Pool
 }
 
-func (p *printer) Print(v ...interface{}) {
-	if !p.logger.LevelEnabled(p.level) {
-		return
-	}
+func (p *stdPrinter) Print(v ...interface{}) {
 	buf := p.bufPool.Get().(*bytes.Buffer)
 	defer func() {
 		buf.Reset()
 		p.bufPool.Put(buf)
 	}()
-	for _, field := range p.fields {
-		_, _ = fmt.Fprintf(buf, "%s=%v ", field.Key, Value(p.ctx, field.Value))
-	}
 	_, _ = fmt.Fprint(buf, v...)
-	_ = p.logger.out.Output(2, buf.String())
+	p.output.Output(p.ctx, p.level, buf.String(), p.fields)
 }
 
-func (p *printer) Printf(format string, v ...interface{}) {
-	if !p.logger.LevelEnabled(p.level) {
-		return
-	}
+func (p *stdPrinter) Printf(format string, v ...interface{}) {
 	buf := p.bufPool.Get().(*bytes.Buffer)
 	defer func() {
 		buf.Reset()
 		p.bufPool.Put(buf)
 	}()
-	for _, field := range p.fields {
-		_, _ = fmt.Fprintf(buf, "%s=%v ", field.Key, Value(p.ctx, field.Value))
-	}
 	_, _ = fmt.Fprintf(buf, format, v...)
-	_ = p.logger.out.Output(2, buf.String())
+	p.output.Output(p.ctx, p.level, buf.String(), p.fields)
 }
 
-func (p *printer) Println(v ...interface{}) {
-	if !p.logger.LevelEnabled(p.level) {
-		return
-	}
+func (p *stdPrinter) Println(v ...interface{}) {
 	buf := p.bufPool.Get().(*bytes.Buffer)
 	defer func() {
 		buf.Reset()
 		p.bufPool.Put(buf)
 	}()
-	for _, field := range p.fields {
-		_, _ = fmt.Fprintf(buf, "%s=%v ", field.Key, Value(p.ctx, field.Value))
-	}
 	buf.WriteString(fmt.Sprintln(v...))
 	buf.Truncate(buf.Len() - 1)
-	_ = p.logger.out.Output(2, buf.String())
+	p.output.Output(p.ctx, p.level, buf.String(), p.fields)
 }
 
-func (p *printer) With(key string, value interface{}) Printer {
+func (p *stdPrinter) With(key string, value interface{}) Printer {
 	if key == "" {
 		return p
 	}
@@ -96,28 +121,76 @@ func (p *printer) With(key string, value interface{}) Printer {
 			return p
 		}
 	}
-	p.fields = append(p.fields, field{key, value})
+	p.fields = append(p.fields, Field{key, value})
 	return p
 }
 
-func (p *printer) WithContext(ctx context.Context) Printer {
-	p.ctx = ctx
-	return p
+// stdLogger is the builtin implementation of Logger
+type stdLogger struct {
+	output Output
+	name   string
 }
 
-// logger is the builtin implementation of Logger
-type logger struct {
-	out     *log.Logger
-	name    string
-	manager *manager
+func (l *stdLogger) levelEnabled(level Level) bool {
+	store := GetLevelStore()
+	ll := InfoLevel
+	if store != nil {
+		ll = store.Get(l.name)
+	}
+	return ll != ClosedLevel && ll <= level
 }
 
-// level return the lowest Level the logger supports.
-func (l *logger) level() Level {
-	name := l.name
+func (l *stdLogger) AtLevel(level Level, ctx context.Context) Printer {
+	if !l.levelEnabled(level) {
+		return NewNopPrinter()
+	}
+	return &stdPrinter{
+		output: l.output,
+		level:  level,
+		fields: []Field{
+			{LevelKey, level},
+			{LoggerKey, l.name},
+		},
+		ctx: ctx,
+		bufPool: &sync.Pool{
+			New: func() interface{} {
+				return &bytes.Buffer{}
+			},
+		},
+	}
+}
+
+// NewStdLogger create a Logger by name. The Logger returned will use the provided
+// Output to print logging messages.
+func NewStdLogger(name string, output Output) Logger {
+	return &stdLogger{
+		output: output,
+		name:   name,
+	}
+}
+
+// NewStdLoggerProvider make a LoggerProvider which produce Logger via
+// NewStdLogger function.
+func NewStdLoggerProvider(output Output) LoggerProvider {
+	return func(name string) Logger {
+		return NewStdLogger(name, output)
+	}
+}
+
+// stdLevelStore is builtin implementation of LevelStore.
+// It store and update levels with a Copy-On-Write map.
+type stdLevelStore struct {
+	store *map[string]Level
+}
+
+func (l *stdLevelStore) Get(name string) Level {
+	store := *l.store
+	if store == nil {
+		return InfoLevel
+	}
 	for name != "" {
-		if val, ok := l.manager.levels.Get(name); ok {
-			return val.(Level)
+		if lvl, ok := store[name]; ok {
+			return lvl
 		}
 		lastIndex := strings.LastIndexFunc(name, func(r rune) bool {
 			return r == '.' || r == '/'
@@ -127,91 +200,70 @@ func (l *logger) level() Level {
 		}
 		name = name[:lastIndex]
 	}
-	rootLevel, _ := l.manager.levels.Get("")
-	return rootLevel.(Level)
-}
-
-func (l *logger) LevelEnabled(level Level) bool {
-	ll := l.level()
-	return ll != ClosedLevel && ll <= level
-}
-
-func (l *logger) Printer(ctx ...context.Context) Printer {
-	return l.AtLevel(InfoLevel, ctx...)
-}
-
-func (l *logger) Name() string {
-	return l.name
-}
-
-func (l *logger) AtLevel(level Level, ctx ...context.Context) Printer {
-	var ctx_ context.Context
-	if len(ctx) > 0 {
-		ctx_ = ctx[len(ctx)-1]
+	if lvl, ok := store[""]; ok {
+		return lvl
 	}
-	return &printer{
-		logger: l,
-		level:  level,
-		fields: []field{
-			{LevelKey, level},
-			{LoggerKey, l.name},
+	return InfoLevel
+}
+
+func (l *stdLevelStore) Set(name string, level Level) {
+	for {
+		store := map[string]Level{}
+		oldStore := l.store
+		for oldName, oldLevel := range *oldStore {
+			store[oldName] = oldLevel
+		}
+		store[name] = level
+		addr := (*unsafe.Pointer)(unsafe.Pointer(&l.store))
+		if atomic.CompareAndSwapPointer(addr, unsafe.Pointer(oldStore), unsafe.Pointer(&store)) {
+			break
+		}
+	}
+}
+
+func (l *stdLevelStore) UnSet(name string) {
+	for {
+		store := map[string]Level{}
+		oldStore := l.store
+		for oldName, oldLevel := range *oldStore {
+			if oldName == name {
+				continue
+			}
+			store[oldName] = oldLevel
+		}
+		addr := (*unsafe.Pointer)(unsafe.Pointer(&l.store))
+		if atomic.CompareAndSwapPointer(addr, unsafe.Pointer(oldStore), unsafe.Pointer(&store)) {
+			break
+		}
+	}
+}
+
+// StdLevelStoreOption is option for NewStdLevelStore constructor function.
+type StdLevelStoreOption func(ls *stdLevelStore)
+
+// LoggerLevel is a option which define Level for name.
+func LoggerLevel(name string, level Level) StdLevelStoreOption {
+	return func(ls *stdLevelStore) {
+		ls.Set(name, level)
+	}
+}
+
+// RootLevel is a option which define the root Level.
+func RootLevel(level Level) StdLevelStoreOption {
+	return func(ls *stdLevelStore) {
+		ls.Set("", level)
+	}
+}
+
+// NewStdLevelStore create a LevelStore.
+func NewStdLevelStore(opts ...StdLevelStoreOption) LevelStore {
+	store := &stdLevelStore{
+		store: &map[string]Level{
+			"": InfoLevel,
 		},
-		ctx: ctx_,
-		bufPool: &sync.Pool{
-			New: func() interface{} {
-				return &bytes.Buffer{}
-			},
-		},
 	}
-}
-
-// manager is the builtin implementation of Manager.
-type manager struct {
-	levels    *hashmap.HashMap
-	out       *log.Logger
-	instances *hashmap.HashMap
-}
-
-func (m *manager) Get(name string) Logger {
-	actual, _ := m.instances.GetOrInsert(name, &logger{
-		out:     m.out,
-		name:    name,
-		manager: m,
-	})
-	return actual.(*logger)
-}
-
-func (m *manager) Level(name string, level Level) {
-	m.levels.Set(name, level)
-}
-
-// Option is options for NewManager.
-type Option func(m *manager)
-
-// LoggerLevel produce one Option which set Level of name.
-func LoggerLevel(name string, level Level) Option {
-	return func(m *manager) {
-		m.Level(name, level)
+	for _, opt := range opts {
+		opt(store)
 	}
-}
-
-// RootLevel produce one Option which set Level of root logger.
-func RootLevel(level Level) Option {
-	return func(m *manager) {
-		m.Level("", level)
-	}
-}
-
-// NewManager build and return a Manager.
-func NewManager(out *log.Logger, opts ...Option) Manager {
-	mng := &manager{
-		levels:    &hashmap.HashMap{},
-		out:       out,
-		instances: &hashmap.HashMap{},
-	}
-	mng.Level("", InfoLevel)
-	for _, o := range opts {
-		o(mng)
-	}
-	return mng
+	return store
 }

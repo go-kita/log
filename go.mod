@@ -1,5 +1,3 @@
-module github.com/go-kita/log/v2
+module github.com/go-kita/log/v3
 
 go 1.16
-
-require github.com/cornelk/hashmap v1.0.1

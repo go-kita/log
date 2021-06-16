@@ -29,7 +29,7 @@ Translations: [English](README.md) | [简体中文](README.zh_CN.md)
 
 ## Architecture
 
-![kita-log-arch.png](./docs/images/kita-log-arch.png)
+![kita-log-arch-v3.png](./docs/images/kita-log-arch-v3.png)
 
 [comment]: <> (## Usage)
 

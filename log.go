@@ -2,8 +2,7 @@ package log
 
 import (
 	"context"
-	"errors"
-	stdlog "log"
+	"log"
 )
 
 // Printer represents a stateful printer that is at specific level,
@@ -37,72 +36,101 @@ type Printer interface {
 	// please refer the manual of the implementation) may should be avoid, since
 	// the caller key/value pair may be added by the implementation.
 	With(key string, value interface{}) Printer
-	// WithContext set or override the context.Context carried by the Printer.
-	WithContext(ctx context.Context) Printer
+}
+
+// nopPrinter is a Printer that print nothing.
+type nopPrinter struct {
+}
+
+func (p *nopPrinter) Print(_ ...interface{}) {
+}
+
+func (p *nopPrinter) Printf(_ string, _ ...interface{}) {
+}
+
+func (p *nopPrinter) Println(_ ...interface{}) {
+}
+
+func (p *nopPrinter) With(_ string, _ interface{}) Printer {
+	return p
+}
+
+// NewNopPrinter returns a Printer which print nothing.
+func NewNopPrinter() Printer {
+	return &nopPrinter{}
 }
 
 // Logger represents a logger that can provide Printers. A Logger has a name,
 // and there may be a lower limit of logging Level the Logger supported.
 type Logger interface {
-	// LevelEnabled indicates whether the Logger can output line at the provided
-	// level.
-	LevelEnabled(level Level) bool
-	// Printer get a Printer wrapping the provided context.Context.
-	// The Level of Printer returned is InfoLevel.
-	// If Logger does not enable InfoLevel, nothing will be print when calling
-	// the Print functions of returned Printer.
-	Printer(ctx ...context.Context) Printer
-	// Name returns the name of the Logger.
-	Name() string
 	// AtLevel get a Printer wrapping the provided context.Context at specified
 	// logging Level. If the Level is not enabled to the Logger, nothing will be
 	// print when calling the Print functions of returned Printer.
-	AtLevel(level Level, ctx ...context.Context) Printer
+	AtLevel(level Level, ctx context.Context) Printer
 }
 
-// Manager represents a Logger manager. It provides Logger by name.
-type Manager interface {
-	// Get returns a Logger of name from the Manager.
-	// If no logger of the provided name is configured, a parent or default
-	// Logger should be returned. Refer to the manual of implementations.
-	Get(name string) Logger
-	// Level set logging Level for logger of name.
-	// If you call this function with same name more than once, the last call
-	// wins.
-	Level(name string, level Level)
+// nopLogger is a Logger that log nothing.
+type nopLogger struct {
 }
 
-var registeredManager Manager
+func (l *nopLogger) AtLevel(_ Level, _ context.Context) Printer {
+	return NewNopPrinter()
+}
 
-// UseManager register a Manager to use.
+// NewNopLogger returns a Logger who's AtLevel method always return a Nop
+// Printer.
+func NewNopLogger() Logger {
+	return &nopLogger{}
+}
+
+// LevelStore stores and provides the lowest logging Level limit of a Logger by
+// name.
+type LevelStore interface {
+	// Get provide the lowest logging Level that a Logger can support by name.
+	Get(name string) Level
+	// Set update the lowest logging Level that a Logger can support by name.
+	// If this method is called more than once, the last call wins.
+	Set(name string, level Level)
+	// UnSet clear the set lowest logging Level that a Logger can support by
+	// name.
+	UnSet(name string)
+}
+
+// LoggerProvider is provider function that provide a non-nil Logger by name.
+type LoggerProvider func(name string) Logger
+
+var defaultLevelStore LevelStore
+var defaultLoggerProvider LoggerProvider
+
+// UseProvider register a LoggerProvider for use by default.
 // If this function is called more than once, the last call wins.
-// Note that, all got Loggers before UseManager call have no relation with
-// the new registered Manager, you can not control their behaviors after you
-// call this function.
-func UseManager(mng Manager) {
-	registeredManager = mng
+func UseProvider(provider LoggerProvider) {
+	defaultLoggerProvider = provider
 }
 
-// GetManager returns the registered Manager to use.
-// If none Manager is registered, it will return a none nil error.
-func GetManager() (Manager, error) {
-	if registeredManager == nil {
-		return nil, errors.New("no log manager registered")
-	}
-	return registeredManager, nil
+// UseLevelStore register a LevelStore for use by default.
+// If this function is called more than once, the last call wins.
+func UseLevelStore(store LevelStore) {
+	defaultLevelStore = store
 }
 
-// Get return a Logger from registered Manager.
-// If none Manager is registered, it return a new built logger, and note that,
-// you can not control the returned new built logger's behaviors, so you'd
-// better always call UseManager registering a valid Manager before call this
-// function.
-// Note that, this method will never refill the registered Manager if absent.
+// NoLevelStore clears registered LevelStore.
+func NoLevelStore() {
+	UseLevelStore(nil)
+}
+
+// GetLevelStore returns the registered LevelStore for use by default.
+// Nil may be returned, if no LevelStore is registered or the registered
+// LevelStore has be cleared.
+func GetLevelStore() LevelStore {
+	return defaultLevelStore
+}
+
+// Get return a Logger by name.
 func Get(name string) Logger {
-	mng, err := GetManager()
-	if err != nil {
-		mng := NewManager(stdlog.Default(), RootLevel(DebugLevel))
-		return mng.Get("")
+	provider := defaultLoggerProvider
+	if provider == nil {
+		return NewStdLogger(name, NewStdOutput(log.Default()))
 	}
-	return mng.Get(name)
+	return provider(name)
 }

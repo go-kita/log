@@ -34,14 +34,14 @@ func init() {
 
 // ResetLevelNames reset level name to default.
 func ResetLevelNames() {
-	mp := map[Level]string{
-		DebugLevel:  "DEBUG",
-		InfoLevel:   "INFO",
-		WarnLevel:   "WARN",
-		ErrorLevel:  "ERROR",
-		ClosedLevel: "NONE",
-	}
 	for {
+		mp := map[Level]string{
+			DebugLevel:  "DEBUG",
+			InfoLevel:   "INFO",
+			WarnLevel:   "WARN",
+			ErrorLevel:  "ERROR",
+			ClosedLevel: "NONE",
+		}
 		if atomic.CompareAndSwapPointer((*unsafe.Pointer)(unsafe.Pointer(&levelNames)),
 			unsafe.Pointer(levelNames), unsafe.Pointer(&mp)) {
 			break

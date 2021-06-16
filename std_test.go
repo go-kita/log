@@ -3,14 +3,33 @@ package log
 import (
 	"bytes"
 	"context"
-	stdlog "log"
+	"io"
+	"log"
+	"sync"
 	"testing"
 )
 
-func TestPrinter_Print(t *testing.T) {
+func buildStdPrinter(w io.Writer, ctx context.Context) *stdPrinter {
+	return &stdPrinter{
+		output: NewStdOutput(log.New(w, "", 0)),
+		level:  InfoLevel,
+		fields: []Field{
+			{LevelKey, InfoLevel},
+			{LoggerKey, ""},
+		},
+		ctx: ctx,
+		bufPool: &sync.Pool{
+			New: func() interface{} {
+				return &bytes.Buffer{}
+			},
+		},
+	}
+}
+
+func TestStdPrinter_Print(t *testing.T) {
 	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0))
-	mng.Get("").Printer(context.Background()).Print("1", "2", "3")
+	printer := buildStdPrinter(w, context.Background())
+	printer.Print("1", "2", "3")
 	expect := "level=INFO logger= 123\n"
 	actual := w.String()
 	if expect != actual {
@@ -18,10 +37,10 @@ func TestPrinter_Print(t *testing.T) {
 	}
 }
 
-func TestPrinter_Printf(t *testing.T) {
+func TestStdPrinter_Printf(t *testing.T) {
 	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0))
-	mng.Get("").Printer(context.Background()).Printf("%d %s", 1, "abc")
+	printer := buildStdPrinter(w, context.Background())
+	printer.Printf("%d %s", 1, "abc")
 	expect := "level=INFO logger= 1 abc\n"
 	actual := w.String()
 	if expect != actual {
@@ -29,10 +48,10 @@ func TestPrinter_Printf(t *testing.T) {
 	}
 }
 
-func TestPrinter_Println(t *testing.T) {
+func TestStdPrinter_Println(t *testing.T) {
 	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0))
-	mng.Get("").Printer(context.Background()).Println(1, "abc", true)
+	printer := buildStdPrinter(w, context.Background())
+	printer.Println(1, "abc", true)
 	expect := "level=INFO logger= 1 abc true\n"
 	actual := w.String()
 	if expect != actual {
@@ -40,56 +59,34 @@ func TestPrinter_Println(t *testing.T) {
 	}
 }
 
-func TestPrinter_EmptyKey(t *testing.T) {
+func TestStdPrinter_With(t *testing.T) {
 	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0))
-	printer := mng.Get("").Printer(context.Background()).With("", "abc")
-	printer.Print("abc")
-	expect := "level=INFO logger= abc\n"
-	actual := w.String()
-	if expect != actual {
-		t.Errorf("expect %q, got %q", expect, actual)
-	}
-	w.Reset()
-	printer.Printf("%s", "abc")
-	actual = w.String()
-	if expect != actual {
-		t.Errorf("expect %q, got %q", expect, actual)
-	}
-	w.Reset()
-	printer.Println("abc")
-	actual = w.String()
-	if expect != actual {
-		t.Errorf("expect %q, got %q", expect, actual)
-	}
-}
-
-func TestPrinter_With(t *testing.T) {
-	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0))
-	logger := mng.Get("")
-	logger.Printer(context.Background()).With("module", "test").Print("abc")
+	printer := buildStdPrinter(w, context.Background())
+	printer.With("module", "test").Print("abc")
 	expect := "level=INFO logger= module=test abc\n"
 	got := w.String()
 	if expect != got {
 		t.Errorf("expect %q, got %q", expect, got)
 	}
 	w.Reset()
-	logger.Printer(context.Background()).With("", "ignored").Printf("abc")
+	printer = buildStdPrinter(w, context.Background())
+	printer.With("", "ignored").Printf("abc")
 	expect = "level=INFO logger= abc\n"
 	got = w.String()
 	if expect != got {
 		t.Errorf("expect %q, got %q", expect, got)
 	}
 	w.Reset()
-	logger.Printer(context.Background()).With("module", "test1").Printf("abc")
+	printer = buildStdPrinter(w, context.Background())
+	printer.With("module", "test1").Printf("abc")
 	expect = "level=INFO logger= module=test1 abc\n"
 	got = w.String()
 	if expect != got {
 		t.Errorf("expect %q, got %q", expect, got)
 	}
 	w.Reset()
-	logger.Printer(context.Background()).
+	printer = buildStdPrinter(w, context.Background())
+	printer.
 		With("module", "test1").
 		With("module", "test2").
 		Printf("abc")
@@ -100,145 +97,94 @@ func TestPrinter_With(t *testing.T) {
 	}
 }
 
-func TestPrinter_WithContext(t *testing.T) {
-	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0))
-	ctx := context.WithValue(context.Background(), "abc", "xyz")
-	printer := mng.Get("").Printer().WithContext(ctx)
-	var v Valuer
-	v = func(ctx context.Context) interface{} {
-		if ctx == nil {
-			return ""
-		}
-		if value := ctx.Value("abc"); value != nil {
-			return value
-		}
-		return ""
-	}
-	printer.With("abc", v)
-	printer.Print("abc")
-	expect := "level=INFO logger= abc=xyz abc\n"
-	actual := w.String()
-	if expect != actual {
-		t.Errorf("expect %s, got %s", expect, actual)
-	}
-	w.Reset()
-	printer.WithContext(context.Background())
-	printer.Print("abc")
-	expect = "level=INFO logger= abc= abc\n"
-	actual = w.String()
-	if expect != actual {
-		t.Errorf("expect %s, got %s", expect, actual)
-	}
-	w.Reset()
-	printer.WithContext(context.Background())
-	printer.Print("abc")
-	expect = "level=INFO logger= abc= abc\n"
-	actual = w.String()
-	if expect != actual {
-		t.Errorf("expect %s, got %s", expect, actual)
+func buildStdLogger(name string, w io.Writer) *stdLogger {
+	return &stdLogger{
+		output: NewStdOutput(log.New(w, "", 0)),
+		name:   name,
 	}
 }
 
-func TestLogger_level(t *testing.T) {
+func TestStdLogger_AtLevel(t *testing.T) {
 	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0),
+	ls := NewStdLevelStore(
 		RootLevel(WarnLevel),
 		LoggerLevel("pkg", DebugLevel),
 	)
-	sub := mng.Get("pkg/sub")
-	if !sub.LevelEnabled(DebugLevel) {
+	ols := GetLevelStore()
+	defer UseLevelStore(ols)
+	UseLevelStore(ls)
+	sub := buildStdLogger("pkg/sub", w)
+	if !sub.levelEnabled(DebugLevel) {
 		t.Errorf("expect logger %s enabled DebugLevel as it parent, but not enabled",
 			"pkg/sub")
 	}
-	xyz := mng.Get("xyz")
-	if !xyz.LevelEnabled(WarnLevel) {
+	xyz := buildStdLogger("xyz", w)
+	if !xyz.levelEnabled(WarnLevel) {
 		t.Errorf("expect logger %s enabled WarnLevel as root, but not enabled", "xyz")
 	}
-	if xyz.LevelEnabled(InfoLevel) {
+	if xyz.levelEnabled(InfoLevel) {
 		t.Errorf("expect logger %s not enabled InfoLevel as root, but enabled", "xyz")
-	}
-}
-
-func TestLogger_LevelEnabled(t *testing.T) {
-	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0), LoggerLevel("info", InfoLevel))
-	info := mng.Get("info")
-	if info.LevelEnabled(DebugLevel) {
-		t.Errorf("An InfoLevel logger should not enable DebugLevel")
-	}
-	if !info.LevelEnabled(InfoLevel) {
-		t.Errorf("An InfoLevel logger should enable InfoLevel")
-	}
-	if !info.LevelEnabled(WarnLevel) {
-		t.Errorf("An InfoLevel logger should enable WarnLevel")
-	}
-	info.Printer(context.Background()).Println("abc")
-	expect := "level=INFO logger=info abc\n"
-	got := w.String()
-	if expect != got {
-		t.Errorf("expect %q, got %q", expect, got)
-	}
-}
-
-func TestLogger_Name(t *testing.T) {
-	mng := NewManager(stdlog.Default())
-	name1 := mng.Get("abc").Name()
-	if name1 != "abc" {
-		t.Errorf("expect %s, got %s", "abc", name1)
-	}
-	name2 := mng.Get("").Name()
-	if name2 != "" {
-		t.Errorf("expect %s, got %s", "", name2)
 	}
 }
 
 func TestLogger_AtLevel(t *testing.T) {
 	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0),
+	ls := NewStdLevelStore(
 		LoggerLevel("closed", ClosedLevel),
 	)
-	info := mng.Get("")
+	ols := GetLevelStore()
+	defer UseLevelStore(ols)
+	UseLevelStore(ls)
+	root := buildStdLogger("", w)
 	w.Reset()
-	info.AtLevel(DebugLevel, context.Background()).Print("print nothing")
+	root.AtLevel(DebugLevel, context.Background()).Print("print nothing")
 	if w.Len() != 0 {
 		t.Errorf("should print nothing")
 	}
 	w.Reset()
-	info.AtLevel(WarnLevel, context.Background()).Print("HAHAHA")
+	root.AtLevel(WarnLevel, context.Background()).Print("HAHAHA")
 	expect := "level=WARN logger= HAHAHA\n"
 	if expect != w.String() {
 		t.Errorf("expect %q, got %q", expect, w.String())
 	}
 
 	w.Reset()
-	closed := mng.Get("closed")
-	closed.Printer(context.Background()).Print("closed")
-	closed.Printer(context.Background()).Printf("closed %s", "nothing")
-	closed.Printer(context.Background()).Println("closed %s", "nothing")
+	closed := buildStdLogger("closed", w)
+	closed.AtLevel(InfoLevel, context.Background()).Print("closed")
+	closed.AtLevel(InfoLevel, context.Background()).Printf("closed %s", "nothing")
+	closed.AtLevel(InfoLevel, context.Background()).Println("closed %s", "nothing")
 	closed.AtLevel(ErrorLevel, context.Background()).Println("abc")
 	if w.Len() != 0 {
 		t.Errorf("should print nothing, got %q", w.String())
 	}
-}
 
-func TestManager_Level(t *testing.T) {
-	w := &bytes.Buffer{}
-	mng := NewManager(stdlog.New(w, "", 0))
-	mng.Level("", WarnLevel)
-	root := mng.Get("")
-	root.AtLevel(WarnLevel, context.Background()).Println("abc")
-	expect := "level=WARN logger= abc\n"
+	ls.UnSet("closed")
+	w.Reset()
+	closed.AtLevel(InfoLevel, context.Background()).Println("hello")
+	expect = "level=INFO logger=closed hello\n"
 	got := w.String()
 	if expect != got {
 		t.Errorf("expect %q, got %q", expect, got)
 	}
-	w.Reset()
-	root.Printer(context.Background()).Println("abc")
-	expect = ""
-	got = w.String()
-	if expect != got {
-		t.Errorf("expect %q, got %q", expect, got)
-	}
-
 }
+
+//func TestManager_Level(t *testing.T) {
+//	w := &bytes.Buffer{}
+//	mng := NewManager(stdlog.New(w, "", 0))
+//	mng.Level("", WarnLevel)
+//	root := mng.Get("")
+//	root.AtLevel(WarnLevel, context.Background()).Println("abc")
+//	expect := "level=WARN logger= abc\n"
+//	got := w.String()
+//	if expect != got {
+//		t.Errorf("expect %q, got %q", expect, got)
+//	}
+//	w.Reset()
+//	root.Printer(context.Background()).Println("abc")
+//	expect = ""
+//	got = w.String()
+//	if expect != got {
+//		t.Errorf("expect %q, got %q", expect, got)
+//	}
+//
+//}

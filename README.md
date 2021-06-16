@@ -33,7 +33,7 @@ The following logging frameworks are planned to be adapted:
 
 ## Architecture
 
-![kita-log-arch.png](./docs/images/kita-log-arch.png)
+![kita-log-arch-v3.png](./docs/images/kita-log-arch-v3.png)
 
 [comment]: <> (## Usage)
 

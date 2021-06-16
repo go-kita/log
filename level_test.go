@@ -19,6 +19,7 @@ func TestRegisterLevelName(t *testing.T) {
 }
 
 func TestLevel_String(t *testing.T) {
+	defer ResetLevelNames()
 	ResetLevelNames()
 	if InfoLevel.String() != "INFO" {
 		t.Errorf("string of InfoLevel is not INFO!")
