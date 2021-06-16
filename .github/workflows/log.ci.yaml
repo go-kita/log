@@ -12,6 +12,7 @@ on:
       - 'feat*'
       - 'fix*'
       - 'release*'
+      - 'v*'
   pull_request:
     types:
       - opened
