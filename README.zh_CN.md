@@ -27,10 +27,6 @@ Translations: [English](README.md) | [简体中文](README.zh_CN.md)
 - [x] 支持日志级别运行时调整，且可按日志名对各logger分别控制。
 - [X] 支持接收 `context.Context` 并从中读取值用于输出。
 
-## Architecture
-
-![kita-log-arch-v3.png](./docs/images/kita-log-arch-v3.png)
-
 [comment]: <> (## Usage)
 
 <!-- 描述如何使用该项目 -->

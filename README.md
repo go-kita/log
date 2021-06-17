@@ -31,10 +31,6 @@ The following logging frameworks are planned to be adapted:
 - [x] Support dynamic runtime logging level control by logger names.
 - [X] Support `context.Context` and extracting value from it.
 
-## Architecture
-
-![kita-log-arch-v3.png](./docs/images/kita-log-arch-v3.png)
-
 [comment]: <> (## Usage)
 
 <!-- 描述如何使用该项目 -->
