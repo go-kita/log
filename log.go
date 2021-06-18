@@ -85,7 +85,7 @@ type LevelStore interface {
 	UnSet(name string)
 }
 
-var defaultLevelStore LevelStore
+var defaultLevelStore LevelStore = NewStdLevelStore()
 
 // UseLevelStore register a LevelStore for use by default.
 // If this function is called more than once, the last call wins.
@@ -108,7 +108,7 @@ func GetLevelStore() LevelStore {
 // LoggerProvider is provider function that provide a non-nil Logger by name.
 type LoggerProvider func(name string) Logger
 
-var defaultLoggerProvider LoggerProvider
+var defaultLoggerProvider LoggerProvider = NewStdLoggerProvider(NewStdOutPutter(log.Default()))
 
 // UseProvider register a LoggerProvider for use by default.
 // If this function is called more than once, the last call wins.

@@ -19,11 +19,6 @@ const (
 	LoggerKey = "logger"
 )
 
-func init() {
-	UseLevelStore(NewStdLevelStore())
-	UseProvider(NewStdLoggerProvider(NewStdOutPutter(log.Default())))
-}
-
 // Field represent a key/value pair.
 type Field struct {
 	// Key is the key, string.

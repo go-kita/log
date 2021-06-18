@@ -29,27 +29,11 @@ const (
 	allLevel = math.MinInt8
 )
 
-var levelNames = &map[Level]string{}
-
-func init() {
-	ResetLevelNames()
-}
-
-// ResetLevelNames reset level name to default.
-func ResetLevelNames() {
-	for {
-		mp := map[Level]string{
-			DebugLevel:  "DEBUG",
-			InfoLevel:   "INFO",
-			WarnLevel:   "WARN",
-			ErrorLevel:  "ERROR",
-			ClosedLevel: "NONE",
-		}
-		if atomic.CompareAndSwapPointer((*unsafe.Pointer)(unsafe.Pointer(&levelNames)),
-			unsafe.Pointer(levelNames), unsafe.Pointer(&mp)) {
-			break
-		}
-	}
+var levelNames = &map[Level]string{
+	DebugLevel: "DEBUG",
+	InfoLevel:  "INFO",
+	WarnLevel:  "WARN",
+	ErrorLevel: "ERROR",
 }
 
 // RegisterLevelName register the name of one level. If the level is already exists,
