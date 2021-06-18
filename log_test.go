@@ -1,6 +1,7 @@
 package log
 
 import (
+	"context"
 	"testing"
 )
 
@@ -39,5 +40,50 @@ func TestNoLevelStore(t *testing.T) {
 	NoLevelStore()
 	if defaultLevelStore != nil {
 		t.Errorf("expect the underlying LevelStore be nil, but not nil")
+	}
+}
+
+type nopLogger struct {
+}
+
+var _ Logger = (*nopLogger)(nil)
+
+func (l *nopLogger) AtLevel(_ context.Context, _ Level) Printer {
+	return NewNopPrinter()
+}
+
+func nopProvider(_ string) Logger {
+	return &nopLogger{}
+}
+
+func TestUseProvider(t *testing.T) {
+	op := defaultLoggerProvider
+	defer UseProvider(op)
+	defaultLoggerProvider = nil
+	UseProvider(nopProvider)
+	if defaultLoggerProvider == nil {
+		t.Errorf("expect the underlying LoggerProvider not nil, but is nil")
+	}
+	log := defaultLoggerProvider("test")
+	if _, ok := log.(*nopLogger); !ok {
+		t.Errorf("expect a nopLogger, but not: %T", log)
+	}
+	UseProvider(nil)
+	if defaultLoggerProvider != nil {
+		t.Errorf("expect the underlying LoggerProvider be nil, but not nil")
+	}
+}
+
+func TestGet(t *testing.T) {
+	op := defaultLoggerProvider
+	defer UseProvider(op)
+	logger := Get("abc")
+	if logger == nil {
+		t.Errorf("expect not nil, but got nil")
+	}
+	UseProvider(nil)
+	logger = Get("xyz")
+	if logger == nil {
+		t.Errorf("expect not nil, but got nil")
 	}
 }

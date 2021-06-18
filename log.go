@@ -2,6 +2,7 @@ package log
 
 import (
 	"context"
+	"log"
 )
 
 // Printer represents a stateful printer that is at specific level,
@@ -102,4 +103,24 @@ func NoLevelStore() {
 // LevelStore has be cleared.
 func GetLevelStore() LevelStore {
 	return defaultLevelStore
+}
+
+// LoggerProvider is provider function that provide a non-nil Logger by name.
+type LoggerProvider func(name string) Logger
+
+var defaultLoggerProvider LoggerProvider
+
+// UseProvider register a LoggerProvider for use by default.
+// If this function is called more than once, the last call wins.
+func UseProvider(provider LoggerProvider) {
+	defaultLoggerProvider = provider
+}
+
+// Get return a Logger by name.
+func Get(name string) Logger {
+	provider := defaultLoggerProvider
+	if provider == nil {
+		return NewStdLogger(name, NewStdOutPutter(log.Default()))
+	}
+	return provider(name)
 }

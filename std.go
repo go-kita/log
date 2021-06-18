@@ -21,6 +21,7 @@ const (
 
 func init() {
 	UseLevelStore(NewStdLevelStore())
+	UseProvider(NewStdLoggerProvider(NewStdOutPutter(log.Default())))
 }
 
 // Field represent a key/value pair.
@@ -346,4 +347,12 @@ func NewStdLevelStore(opts ...StdLevelStoreOption) LevelStore {
 		opt(store)
 	}
 	return store
+}
+
+// NewStdLoggerProvider make a LoggerProvider which produce Logger via
+// NewStdLogger function.
+func NewStdLoggerProvider(outPutter OutPutter) LoggerProvider {
+	return func(name string) Logger {
+		return NewStdLogger(name, outPutter)
+	}
 }
