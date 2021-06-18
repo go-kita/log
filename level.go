@@ -10,6 +10,7 @@ import (
 // A Level is a logging priority. Higher levels are more important.
 type Level int8
 
+// Define logging Levels. Default level is InfoLevel.
 const (
 	// DebugLevel logs are typically voluminous, and are usually disabled in
 	// production.
@@ -24,6 +25,8 @@ const (
 	ErrorLevel
 	// ClosedLevel logs output nothing.
 	ClosedLevel = math.MaxInt8
+	// allLevel logs output anything.
+	allLevel = math.MinInt8
 )
 
 var levelNames = &map[Level]string{}
@@ -69,7 +72,7 @@ func RegisterLevelName(level Level, name string) {
 // String returns a lower-case ASCII representation of the log level.
 func (l Level) String() string {
 	name := (*levelNames)[l]
-	if name == "" {
+	if len(name) == 0 {
 		return fmt.Sprintf("Level(%d)", l)
 	}
 	return name

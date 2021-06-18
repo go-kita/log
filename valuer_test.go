@@ -7,12 +7,14 @@ import (
 	"testing"
 )
 
+type testKey struct{}
+
 func TestValue(t *testing.T) {
 	var testValuer Valuer
 	testValuer = func(ctx context.Context) interface{} {
-		return ctx.Value("key")
+		return ctx.Value(testKey{})
 	}
-	ctx := context.WithValue(context.Background(), "key", "value")
+	ctx := context.WithValue(context.Background(), testKey{}, "value")
 	tests := []struct {
 		v      interface{}
 		expect interface{}

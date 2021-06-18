@@ -2,7 +2,6 @@ package log
 
 import (
 	"context"
-	"log"
 )
 
 // Printer represents a stateful printer that is at specific level,
@@ -38,6 +37,8 @@ type Printer interface {
 	With(key string, value interface{}) Printer
 }
 
+var _ Printer = &nopPrinter{}
+
 // nopPrinter is a Printer that print nothing.
 type nopPrinter struct {
 }
@@ -66,21 +67,8 @@ type Logger interface {
 	// AtLevel get a Printer wrapping the provided context.Context at specified
 	// logging Level. If the Level is not enabled to the Logger, nothing will be
 	// print when calling the Print functions of returned Printer.
-	AtLevel(level Level, ctx context.Context) Printer
-}
-
-// nopLogger is a Logger that log nothing.
-type nopLogger struct {
-}
-
-func (l *nopLogger) AtLevel(_ Level, _ context.Context) Printer {
-	return NewNopPrinter()
-}
-
-// NewNopLogger returns a Logger who's AtLevel method always return a Nop
-// Printer.
-func NewNopLogger() Logger {
-	return &nopLogger{}
+	// If the context.Context provided is nil, context.Background() will be used.
+	AtLevel(ctx context.Context, level Level) Printer
 }
 
 // LevelStore stores and provides the lowest logging Level limit of a Logger by
@@ -96,17 +84,7 @@ type LevelStore interface {
 	UnSet(name string)
 }
 
-// LoggerProvider is provider function that provide a non-nil Logger by name.
-type LoggerProvider func(name string) Logger
-
 var defaultLevelStore LevelStore
-var defaultLoggerProvider LoggerProvider
-
-// UseProvider register a LoggerProvider for use by default.
-// If this function is called more than once, the last call wins.
-func UseProvider(provider LoggerProvider) {
-	defaultLoggerProvider = provider
-}
 
 // UseLevelStore register a LevelStore for use by default.
 // If this function is called more than once, the last call wins.
@@ -124,13 +102,4 @@ func NoLevelStore() {
 // LevelStore has be cleared.
 func GetLevelStore() LevelStore {
 	return defaultLevelStore
-}
-
-// Get return a Logger by name.
-func Get(name string) Logger {
-	provider := defaultLoggerProvider
-	if provider == nil {
-		return NewStdLogger(name, NewStdOutput(log.Default()))
-	}
-	return provider(name)
 }

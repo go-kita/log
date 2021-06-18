@@ -11,6 +11,7 @@ import (
 	"unsafe"
 )
 
+// Define some builtin and standard logging field key.
 const (
 	// LevelKey is field key for logging Level.
 	LevelKey = "level"
@@ -20,7 +21,6 @@ const (
 
 func init() {
 	UseLevelStore(NewStdLevelStore())
-	UseProvider(NewStdLoggerProvider(NewStdOutput(log.Default())))
 }
 
 // Field represent a key/value pair.
@@ -31,24 +31,31 @@ type Field struct {
 	Value interface{}
 }
 
-// Output is the real final output of builtin standard Logger and Printer.
+// OutPutter is the real final output of builtin standard Logger and Printer.
 // It calls the underlying logging / printing infrastructures.
-type Output interface {
-	// Output output msg, fields at a specific level to the underlying
+type OutPutter interface {
+	// OutPut output msg, fields at a specific level to the underlying
 	// logging / printing infrastructures.
-	Output(ctx context.Context, level Level, msg string, fields []Field, addCallerSkip int)
+	OutPut(ctx context.Context, name string, level Level, msg string, fields []Field, callDepth int)
 }
 
-// stdOutput is an Output implementation based on Go SDK log.Logger.
-type stdOutput struct {
+var _ OutPutter = &stdOutPutter{}
+
+// stdOutPutter is an OutPutter implementation based on Go SDK log.Logger.
+type stdOutPutter struct {
 	out     *log.Logger
 	bufPool *sync.Pool
 }
 
-// NewStdOutput create a Output based on Go SDK log.Logger.
+// NewStdOutPutter create a OutPutter based on Go SDK log.Logger.
 // It output to the provided log.Logger.
-func NewStdOutput(out *log.Logger) Output {
-	return &stdOutput{
+// If nil is passed to the function, log.Default() will be called to get a
+// log.Logger.
+func NewStdOutPutter(out *log.Logger) OutPutter {
+	if out == nil {
+		out = log.Default()
+	}
+	return &stdOutPutter{
 		out: out,
 		bufPool: &sync.Pool{
 			New: func() interface{} {
@@ -58,22 +65,96 @@ func NewStdOutput(out *log.Logger) Output {
 	}
 }
 
-func (s *stdOutput) Output(ctx context.Context, _ Level, msg string, fields []Field, addCallerSkip int) {
+func (s *stdOutPutter) OutPut(ctx context.Context, _ string, _ Level, msg string, fields []Field, callDepth int) {
 	buf := s.bufPool.Get().(*bytes.Buffer)
 	defer func() {
 		buf.Reset()
 		s.bufPool.Put(buf)
 	}()
 	for _, field := range fields {
+		if len(field.Key) == 0 {
+			continue
+		}
 		_, _ = fmt.Fprintf(buf, "%s=%v ", field.Key, Value(ctx, field.Value))
 	}
 	_, _ = fmt.Fprint(buf, msg)
-	_ = s.out.Output(addCallerSkip+3, buf.String())
+	_ = s.out.Output(callDepth+3, buf.String())
 }
+
+var _ OutPutter = &OutPutFilter{}
+
+// OutPutFilter is a filter wrapped a OutPutter.
+type OutPutFilter struct {
+	underlying      OutPutter
+	enableFunc      func(ctx context.Context, name string, level Level) bool
+	fieldModifyFunc func(ctx context.Context, field *Field)
+}
+
+// OutPut do checking and modification before calling the OutPut() method of the wrapped OutPutter.
+func (o *OutPutFilter) OutPut(
+	ctx context.Context, name string, level Level, msg string, fields []Field, callDepth int) {
+	if o.underlying == nil {
+		return
+	}
+	if o.enableFunc != nil && !o.enableFunc(ctx, name, level) {
+		return
+	}
+	for i := 0; i < len(fields); i++ {
+		o.fieldModifyFunc(ctx, &fields[i])
+	}
+	o.underlying.OutPut(ctx, name, level, msg, fields, callDepth+1)
+}
+
+// FilterEnable build a OutPutFilter wrapping the provided OutPutter. The output
+// will be skipped if the enable checking function return false.
+func FilterEnable(o OutPutter, f func(ctx context.Context, name string, level Level) bool) OutPutter {
+	if o == nil {
+		return o
+	}
+	return &OutPutFilter{
+		underlying: o,
+		enableFunc: f,
+	}
+}
+
+// FilterRemoveField build a OutPutFilter wrapping the provided OutPutter. Any field
+// with the specific name will be skipped.
+func FilterRemoveField(o OutPutter, name string) OutPutter {
+	if o == nil {
+		return o
+	}
+	return &OutPutFilter{
+		underlying: o,
+		fieldModifyFunc: func(ctx context.Context, field *Field) {
+			if field.Key == name {
+				field.Key = ""
+			}
+		},
+	}
+}
+
+// FilterCoverField build a OutPutFilter wrapping the provided OutPutter.
+// The value of the field with specific name will be replaced.
+func FilterCoverField(o OutPutter, name string, replace interface{}) OutPutter {
+	if o == nil {
+		return o
+	}
+	return &OutPutFilter{
+		underlying: o,
+		fieldModifyFunc: func(ctx context.Context, field *Field) {
+			if field.Key != name {
+				return
+			}
+			field.Value = replace
+		},
+	}
+}
+
+var _ Printer = (*stdPrinter)(nil)
 
 // stdPrinter is the builtin implementation of Printer.
 type stdPrinter struct {
-	output  Output
+	logger  *stdLogger
 	level   Level
 	fields  []Field
 	ctx     context.Context
@@ -87,7 +168,7 @@ func (p *stdPrinter) Print(v ...interface{}) {
 		p.bufPool.Put(buf)
 	}()
 	_, _ = fmt.Fprint(buf, v...)
-	p.output.Output(p.ctx, p.level, buf.String(), p.fields, 0)
+	p.logger.output.OutPut(p.ctx, p.logger.name, p.level, buf.String(), p.fields, 0)
 }
 
 func (p *stdPrinter) Printf(format string, v ...interface{}) {
@@ -97,7 +178,7 @@ func (p *stdPrinter) Printf(format string, v ...interface{}) {
 		p.bufPool.Put(buf)
 	}()
 	_, _ = fmt.Fprintf(buf, format, v...)
-	p.output.Output(p.ctx, p.level, buf.String(), p.fields, 0)
+	p.logger.output.OutPut(p.ctx, p.logger.name, p.level, buf.String(), p.fields, 0)
 }
 
 func (p *stdPrinter) Println(v ...interface{}) {
@@ -108,11 +189,11 @@ func (p *stdPrinter) Println(v ...interface{}) {
 	}()
 	buf.WriteString(fmt.Sprintln(v...))
 	buf.Truncate(buf.Len() - 1)
-	p.output.Output(p.ctx, p.level, buf.String(), p.fields, 0)
+	p.logger.output.OutPut(p.ctx, p.logger.name, p.level, buf.String(), p.fields, 0)
 }
 
 func (p *stdPrinter) With(key string, value interface{}) Printer {
-	if key == "" {
+	if len(key) == 0 {
 		return p
 	}
 	for i := 0; i < len(p.fields); i++ {
@@ -125,9 +206,11 @@ func (p *stdPrinter) With(key string, value interface{}) Printer {
 	return p
 }
 
+var _ Logger = (*stdLogger)(nil)
+
 // stdLogger is the builtin implementation of Logger
 type stdLogger struct {
-	output Output
+	output OutPutter
 	name   string
 }
 
@@ -140,12 +223,15 @@ func (l *stdLogger) levelEnabled(level Level) bool {
 	return ll != ClosedLevel && ll <= level
 }
 
-func (l *stdLogger) AtLevel(level Level, ctx context.Context) Printer {
+func (l *stdLogger) AtLevel(ctx context.Context, level Level) Printer {
 	if !l.levelEnabled(level) {
 		return NewNopPrinter()
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &stdPrinter{
-		output: l.output,
+		logger: l,
 		level:  level,
 		fields: []Field{
 			{LevelKey, level},
@@ -161,21 +247,18 @@ func (l *stdLogger) AtLevel(level Level, ctx context.Context) Printer {
 }
 
 // NewStdLogger create a Logger by name. The Logger returned will use the provided
-// Output to print logging messages.
-func NewStdLogger(name string, output Output) Logger {
+// OutPutter to print logging messages.
+func NewStdLogger(name string, output OutPutter) Logger {
+	if output == nil {
+		output = NewStdOutPutter(log.Default())
+	}
 	return &stdLogger{
 		output: output,
 		name:   name,
 	}
 }
 
-// NewStdLoggerProvider make a LoggerProvider which produce Logger via
-// NewStdLogger function.
-func NewStdLoggerProvider(output Output) LoggerProvider {
-	return func(name string) Logger {
-		return NewStdLogger(name, output)
-	}
-}
+var _ LevelStore = (*stdLevelStore)(nil)
 
 // stdLevelStore is builtin implementation of LevelStore.
 // It store and update levels with a Copy-On-Write map.
@@ -186,7 +269,7 @@ type stdLevelStore struct {
 func (l *stdLevelStore) Get(name string) Level {
 	store := *l.store
 	if store == nil {
-		return InfoLevel
+		return allLevel
 	}
 	for name != "" {
 		if lvl, ok := store[name]; ok {
@@ -200,10 +283,7 @@ func (l *stdLevelStore) Get(name string) Level {
 		}
 		name = name[:lastIndex]
 	}
-	if lvl, ok := store[""]; ok {
-		return lvl
-	}
-	return InfoLevel
+	return store[""]
 }
 
 func (l *stdLevelStore) Set(name string, level Level) {
