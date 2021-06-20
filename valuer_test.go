@@ -10,10 +10,9 @@ import (
 type testKey struct{}
 
 func TestValue(t *testing.T) {
-	var testValuer Valuer
-	testValuer = func(ctx context.Context) interface{} {
+	testValuer := Valuer(func(ctx context.Context) interface{} {
 		return ctx.Value(testKey{})
-	}
+	})
 	ctx := context.WithValue(context.Background(), testKey{}, "value")
 	tests := []struct {
 		v      interface{}

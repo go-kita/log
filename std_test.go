@@ -265,7 +265,7 @@ func TestStdLogger_AtLevel(t *testing.T) {
 		t.Errorf("expect %q, got %q", expect, got)
 	}
 
-	p := root.AtLevel(nil, InfoLevel)
+	p := root.AtLevel(context.TODO(), InfoLevel)
 	sp := p.(*stdPrinter)
 	if sp.ctx == nil {
 		t.Errorf("expect sp.ctx not nil but got nil")
