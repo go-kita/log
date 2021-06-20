@@ -25,24 +25,6 @@ func TestNopPrinter_With(t *testing.T) {
 	_ = p.With("key", "value")
 }
 
-func TestUseLevelStore(t *testing.T) {
-	ols := defaultLevelStore
-	defer UseLevelStore(ols)
-	UseLevelStore(nil)
-	if defaultLevelStore != nil {
-		t.Errorf("expect the underlying LevelStore be nil, but not nil")
-	}
-}
-
-func TestNoLevelStore(t *testing.T) {
-	ols := defaultLevelStore
-	defer UseLevelStore(ols)
-	NoLevelStore()
-	if defaultLevelStore != nil {
-		t.Errorf("expect the underlying LevelStore be nil, but not nil")
-	}
-}
-
 type nopLogger struct {
 }
 
@@ -56,26 +38,33 @@ func nopProvider(_ string) Logger {
 	return &nopLogger{}
 }
 
+func getLoggerProvider() LoggerProvider {
+	fp := (*LoggerProvider)(_loggerProvider.Load())
+	if fp == nil {
+		return nil
+	}
+	return *fp
+}
+
 func TestUseProvider(t *testing.T) {
-	op := defaultLoggerProvider
+	op := getLoggerProvider()
 	defer UseProvider(op)
-	defaultLoggerProvider = nil
 	UseProvider(nopProvider)
-	if defaultLoggerProvider == nil {
+	if getLoggerProvider() == nil {
 		t.Errorf("expect the underlying LoggerProvider not nil, but is nil")
 	}
-	log := defaultLoggerProvider("test")
+	log := getLoggerProvider()("test")
 	if _, ok := log.(*nopLogger); !ok {
 		t.Errorf("expect a nopLogger, but not: %T", log)
 	}
 	UseProvider(nil)
-	if defaultLoggerProvider != nil {
+	if getLoggerProvider() != nil {
 		t.Errorf("expect the underlying LoggerProvider be nil, but not nil")
 	}
 }
 
 func TestGet(t *testing.T) {
-	op := defaultLoggerProvider
+	op := getLoggerProvider()
 	defer UseProvider(op)
 	logger := Get("abc")
 	if logger == nil {

@@ -208,13 +208,11 @@ func buildStdLogger(name string, w io.Writer) *stdLogger {
 
 func TestStdLogger_LevelEnabled(t *testing.T) {
 	w := &bytes.Buffer{}
-	ls := NewStdLevelStore(
-		RootLevel(WarnLevel),
-		LoggerLevel("pkg", DebugLevel),
-	)
-	ols := GetLevelStore()
-	defer UseLevelStore(ols)
-	UseLevelStore(ls)
+	store := GetLevelStore()
+	store.Set("", WarnLevel).Set("pkg", DebugLevel)
+	defer func() {
+		store.Set("", InfoLevel).UnSet("pkg")
+	}()
 	sub := buildStdLogger("pkg/sub", w)
 	if !sub.levelEnabled(DebugLevel) {
 		t.Errorf("expect logger %s enabled DebugLevel as it parent, but not enabled",
@@ -231,12 +229,10 @@ func TestStdLogger_LevelEnabled(t *testing.T) {
 
 func TestStdLogger_AtLevel(t *testing.T) {
 	w := &bytes.Buffer{}
-	ls := NewStdLevelStore(
-		LoggerLevel("closed", ClosedLevel),
-	)
-	ols := GetLevelStore()
-	defer UseLevelStore(ols)
-	UseLevelStore(ls)
+	GetLevelStore().Set("closed", ClosedLevel)
+	defer func() {
+		GetLevelStore().UnSet("closed")
+	}()
 	root := buildStdLogger("", w)
 	w.Reset()
 	root.AtLevel(context.Background(), DebugLevel).Print("print nothing")
@@ -260,7 +256,7 @@ func TestStdLogger_AtLevel(t *testing.T) {
 		t.Errorf("should print nothing, got %q", w.String())
 	}
 
-	ls.UnSet("closed")
+	GetLevelStore().UnSet("closed")
 	w.Reset()
 	closed.AtLevel(context.Background(), InfoLevel).Println("hello")
 	expect = "level=INFO logger=closed hello\n"

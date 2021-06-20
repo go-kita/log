@@ -3,8 +3,9 @@ package log
 import (
 	"fmt"
 	"math"
-	"sync/atomic"
 	"unsafe"
+
+	ua "go.uber.org/atomic"
 )
 
 // A Level is a logging priority. Higher levels are more important.
@@ -25,29 +26,27 @@ const (
 	ErrorLevel
 	// ClosedLevel logs output nothing.
 	ClosedLevel = math.MaxInt8
-	// allLevel logs output anything.
-	allLevel = math.MinInt8
 )
 
-var levelNames = &map[Level]string{
+var _levelNames = ua.NewUnsafePointer(unsafe.Pointer(&map[Level]string{
 	DebugLevel: "DEBUG",
 	InfoLevel:  "INFO",
 	WarnLevel:  "WARN",
 	ErrorLevel: "ERROR",
-}
+}))
 
 // RegisterLevelName register the name of one level. If the level is already exists,
 // the function will overwrite it. If the name given is empty, it register nothing,
 // or it deregister a level name.
 func RegisterLevelName(level Level, name string) {
 	for {
-		mp := make(map[Level]string, len(*levelNames))
-		for l, n := range *levelNames {
+		old := (*map[Level]string)(_levelNames.Load())
+		mp := make(map[Level]string, len(*old))
+		for l, n := range *old {
 			mp[l] = n
 		}
 		mp[level] = name
-		if atomic.CompareAndSwapPointer((*unsafe.Pointer)(unsafe.Pointer(&levelNames)),
-			unsafe.Pointer(levelNames), unsafe.Pointer(&mp)) {
+		if _levelNames.CAS(unsafe.Pointer(old), unsafe.Pointer(&mp)) {
 			break
 		}
 	}
@@ -55,7 +54,8 @@ func RegisterLevelName(level Level, name string) {
 
 // String returns a lower-case ASCII representation of the log level.
 func (l Level) String() string {
-	name := (*levelNames)[l]
+	load := (*map[Level]string)(_levelNames.Load())
+	name := (*load)[l]
 	if len(name) == 0 {
 		return fmt.Sprintf("Level(%d)", l)
 	}

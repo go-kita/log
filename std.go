@@ -7,8 +7,9 @@ import (
 	"log"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"unsafe"
+
+	ua "go.uber.org/atomic"
 )
 
 // Define some builtin and standard logging field key.
@@ -27,6 +28,8 @@ type Field struct {
 	Value interface{}
 }
 
+// ======== OutPutter =========
+
 // OutPutter is the real final output of builtin standard Logger and Printer.
 // It calls the underlying logging / printing infrastructures.
 type OutPutter interface {
@@ -34,8 +37,6 @@ type OutPutter interface {
 	// logging / printing infrastructures.
 	OutPut(ctx context.Context, name string, level Level, msg string, fields []Field, callDepth int)
 }
-
-var _ OutPutter = &stdOutPutter{}
 
 // stdOutPutter is an OutPutter implementation based on Go SDK log.Logger.
 type stdOutPutter struct {
@@ -76,6 +77,8 @@ func (s *stdOutPutter) OutPut(ctx context.Context, _ string, _ Level, msg string
 	_, _ = fmt.Fprint(buf, msg)
 	_ = s.out.Output(callDepth+3, buf.String())
 }
+
+// ======== OutPutFilter =========
 
 var _ OutPutter = &OutPutFilter{}
 
@@ -146,6 +149,8 @@ func FilterCoverField(o OutPutter, name string, replace interface{}) OutPutter {
 	}
 }
 
+// ======== Printer =========
+
 var _ Printer = (*stdPrinter)(nil)
 
 // stdPrinter is the builtin implementation of Printer.
@@ -202,12 +207,26 @@ func (p *stdPrinter) With(key string, value interface{}) Printer {
 	return p
 }
 
+// ======== Logger =========
+
 var _ Logger = (*stdLogger)(nil)
 
 // stdLogger is the builtin implementation of Logger
 type stdLogger struct {
 	output OutPutter
 	name   string
+}
+
+// NewStdLogger create a Logger by name. The Logger returned will use the provided
+// OutPutter to print logging messages.
+func NewStdLogger(name string, output OutPutter) Logger {
+	if output == nil {
+		output = NewStdOutPutter(log.Default())
+	}
+	return &stdLogger{
+		output: output,
+		name:   name,
+	}
 }
 
 func (l *stdLogger) levelEnabled(level Level) bool {
@@ -242,31 +261,50 @@ func (l *stdLogger) AtLevel(ctx context.Context, level Level) Printer {
 	}
 }
 
-// NewStdLogger create a Logger by name. The Logger returned will use the provided
-// OutPutter to print logging messages.
-func NewStdLogger(name string, output OutPutter) Logger {
-	if output == nil {
-		output = NewStdOutPutter(log.Default())
-	}
-	return &stdLogger{
-		output: output,
-		name:   name,
-	}
+// ======== LevelStore =========
+
+// LevelStore stores and provides the lowest logging Level limit of a Logger by
+// name.
+type LevelStore interface {
+	// Get provide the lowest logging Level that a Logger can support by name.
+	Get(name string) Level
+	// Set update the lowest logging Level that a Logger can support by name.
+	// If this method is called more than once, the last call wins.
+	Set(name string, level Level) LevelStore
+	// UnSet clear the set lowest logging Level that a Logger can support by
+	// name.
+	UnSet(name string) LevelStore
+
+	// Restore clear all known levels and reset levels according to
+	// the provided level map.
+	Restore(mp map[string]Level)
+	// Levels return all known levels as map[string]Level.
+	Levels() map[string]Level
 }
 
-var _ LevelStore = (*stdLevelStore)(nil)
+var _levelStore = &stdLevelStore{
+	store: ua.NewUnsafePointer(unsafe.Pointer(&map[string]Level{
+		"": InfoLevel,
+	})),
+}
+
+// GetLevelStore returns the registered LevelStore for use by default.
+// Nil may be returned, if no LevelStore is registered or the registered
+// LevelStore has be cleared.
+func GetLevelStore() LevelStore {
+	return _levelStore
+}
 
 // stdLevelStore is builtin implementation of LevelStore.
 // It store and update levels with a Copy-On-Write map.
 type stdLevelStore struct {
-	store *map[string]Level
+	store *ua.UnsafePointer
 }
 
+var _ LevelStore = (*stdLevelStore)(nil)
+
 func (l *stdLevelStore) Get(name string) Level {
-	store := *l.store
-	if store == nil {
-		return allLevel
-	}
+	store := *(*map[string]Level)(l.store.Load())
 	for name != "" {
 		if lvl, ok := store[name]; ok {
 			return lvl
@@ -282,67 +320,56 @@ func (l *stdLevelStore) Get(name string) Level {
 	return store[""]
 }
 
-func (l *stdLevelStore) Set(name string, level Level) {
+func (l *stdLevelStore) Set(name string, level Level) LevelStore {
 	for {
 		store := map[string]Level{}
-		oldStore := l.store
-		for oldName, oldLevel := range *oldStore {
+		old := (*map[string]Level)(l.store.Load())
+		for oldName, oldLevel := range *old {
 			store[oldName] = oldLevel
 		}
 		store[name] = level
-		addr := (*unsafe.Pointer)(unsafe.Pointer(&l.store))
-		if atomic.CompareAndSwapPointer(addr, unsafe.Pointer(oldStore), unsafe.Pointer(&store)) {
+		if l.store.CAS(unsafe.Pointer(old), unsafe.Pointer(&store)) {
 			break
 		}
 	}
+	return l
 }
 
-func (l *stdLevelStore) UnSet(name string) {
+func (l *stdLevelStore) UnSet(name string) LevelStore {
 	for {
 		store := map[string]Level{}
-		oldStore := l.store
-		for oldName, oldLevel := range *oldStore {
+		old := (*map[string]Level)(l.store.Load())
+		for oldName, oldLevel := range *old {
 			if oldName == name {
 				continue
 			}
 			store[oldName] = oldLevel
 		}
-		addr := (*unsafe.Pointer)(unsafe.Pointer(&l.store))
-		if atomic.CompareAndSwapPointer(addr, unsafe.Pointer(oldStore), unsafe.Pointer(&store)) {
+		if l.store.CAS(unsafe.Pointer(old), unsafe.Pointer(&store)) {
 			break
 		}
 	}
+	return l
 }
 
-// StdLevelStoreOption is option for NewStdLevelStore constructor function.
-type StdLevelStoreOption func(ls *stdLevelStore)
-
-// LoggerLevel is a option which define Level for name.
-func LoggerLevel(name string, level Level) StdLevelStoreOption {
-	return func(ls *stdLevelStore) {
-		ls.Set(name, level)
+func (l *stdLevelStore) Restore(mp map[string]Level) {
+	store := make(map[string]Level, len(mp))
+	for name, level := range mp {
+		store[name] = level
 	}
+	l.store.Swap(unsafe.Pointer(&store))
 }
 
-// RootLevel is a option which define the root Level.
-func RootLevel(level Level) StdLevelStoreOption {
-	return func(ls *stdLevelStore) {
-		ls.Set("", level)
+func (l *stdLevelStore) Levels() map[string]Level {
+	store := *(*map[string]Level)(l.store.Load())
+	mp := make(map[string]Level, len(store))
+	for name, level := range store {
+		mp[name] = level
 	}
+	return mp
 }
 
-// NewStdLevelStore create a LevelStore.
-func NewStdLevelStore(opts ...StdLevelStoreOption) LevelStore {
-	store := &stdLevelStore{
-		store: &map[string]Level{
-			"": InfoLevel,
-		},
-	}
-	for _, opt := range opts {
-		opt(store)
-	}
-	return store
-}
+// ======== LoggerProvider =========
 
 // NewStdLoggerProvider make a LoggerProvider which produce Logger via
 // NewStdLogger function.
@@ -350,4 +377,8 @@ func NewStdLoggerProvider(outPutter OutPutter) LoggerProvider {
 	return func(name string) Logger {
 		return NewStdLogger(name, outPutter)
 	}
+}
+
+func init() {
+	UseProvider(NewStdLoggerProvider(NewStdOutPutter(log.Default())))
 }

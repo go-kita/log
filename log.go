@@ -3,6 +3,9 @@ package log
 import (
 	"context"
 	"log"
+	"unsafe"
+
+	ua "go.uber.org/atomic"
 )
 
 // Printer represents a stateful printer that is at specific level,
@@ -38,10 +41,13 @@ type Printer interface {
 	With(key string, value interface{}) Printer
 }
 
-var _ Printer = &nopPrinter{}
-
 // nopPrinter is a Printer that print nothing.
 type nopPrinter struct {
+}
+
+// NewNopPrinter returns a Printer which print nothing.
+func NewNopPrinter() Printer {
+	return &nopPrinter{}
 }
 
 func (p *nopPrinter) Print(_ ...interface{}) {
@@ -57,11 +63,6 @@ func (p *nopPrinter) With(_ string, _ interface{}) Printer {
 	return p
 }
 
-// NewNopPrinter returns a Printer which print nothing.
-func NewNopPrinter() Printer {
-	return &nopPrinter{}
-}
-
 // Logger represents a logger that can provide Printers. A Logger has a name,
 // and there may be a lower limit of logging Level the Logger supported.
 type Logger interface {
@@ -72,55 +73,27 @@ type Logger interface {
 	AtLevel(ctx context.Context, level Level) Printer
 }
 
-// LevelStore stores and provides the lowest logging Level limit of a Logger by
-// name.
-type LevelStore interface {
-	// Get provide the lowest logging Level that a Logger can support by name.
-	Get(name string) Level
-	// Set update the lowest logging Level that a Logger can support by name.
-	// If this method is called more than once, the last call wins.
-	Set(name string, level Level)
-	// UnSet clear the set lowest logging Level that a Logger can support by
-	// name.
-	UnSet(name string)
-}
-
-var defaultLevelStore LevelStore = NewStdLevelStore()
-
-// UseLevelStore register a LevelStore for use by default.
-// If this function is called more than once, the last call wins.
-func UseLevelStore(store LevelStore) {
-	defaultLevelStore = store
-}
-
-// NoLevelStore clears registered LevelStore.
-func NoLevelStore() {
-	UseLevelStore(nil)
-}
-
-// GetLevelStore returns the registered LevelStore for use by default.
-// Nil may be returned, if no LevelStore is registered or the registered
-// LevelStore has be cleared.
-func GetLevelStore() LevelStore {
-	return defaultLevelStore
-}
-
 // LoggerProvider is provider function that provide a non-nil Logger by name.
 type LoggerProvider func(name string) Logger
 
-var defaultLoggerProvider LoggerProvider = NewStdLoggerProvider(NewStdOutPutter(log.Default()))
+var _loggerProvider = ua.NewUnsafePointer(unsafe.Pointer((*LoggerProvider)(nil)))
 
 // UseProvider register a LoggerProvider for use by default.
 // If this function is called more than once, the last call wins.
 func UseProvider(provider LoggerProvider) {
-	defaultLoggerProvider = provider
+	for {
+		old := _loggerProvider.Load()
+		if _loggerProvider.CAS(old, unsafe.Pointer(&provider)) {
+			break
+		}
+	}
 }
 
 // Get return a Logger by name.
 func Get(name string) Logger {
-	provider := defaultLoggerProvider
+	provider := *(*LoggerProvider)(_loggerProvider.Load())
 	if provider == nil {
 		return NewStdLogger(name, NewStdOutPutter(log.Default()))
 	}
-	return provider(name)
+	return (*(*LoggerProvider)(_loggerProvider.Load()))(name)
 }

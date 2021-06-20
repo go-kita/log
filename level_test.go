@@ -1,12 +1,24 @@
 package log
 
-import "testing"
+import (
+	"testing"
+	"unsafe"
+)
+
+func resetLevelNames() {
+	_levelNames.Swap(unsafe.Pointer(&map[Level]string{
+		DebugLevel: "DEBUG",
+		InfoLevel:  "INFO",
+		WarnLevel:  "WARN",
+		ErrorLevel: "ERROR",
+	}))
+}
 
 func TestRegisterLevelName(t *testing.T) {
-	ResetLevelNames()
-	r1 := *levelNames
+	resetLevelNames()
+	r1 := *(*map[Level]string)(_levelNames.Load())
 	RegisterLevelName(Level(99), "L99")
-	r2 := *levelNames
+	r2 := *(*map[Level]string)(_levelNames.Load())
 	if len(r1) == len(r2) {
 		t.Errorf("expect size not equals, but equals")
 	}
@@ -19,8 +31,8 @@ func TestRegisterLevelName(t *testing.T) {
 }
 
 func TestLevel_String(t *testing.T) {
-	defer ResetLevelNames()
-	ResetLevelNames()
+	defer resetLevelNames()
+	resetLevelNames()
 	if InfoLevel.String() != "INFO" {
 		t.Errorf("string of InfoLevel is not INFO!")
 	}
