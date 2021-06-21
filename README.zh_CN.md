@@ -13,10 +13,9 @@ Translations: [English](README.md) | [简体中文](README.zh_CN.md)
 
 本模块提供一套简单易用且易实现的日志接口。同时，也基于Go SDK的 `log` 包提供了一套可用的接口适配实现。
 
-现计划实现以下日志框架的适配：
-
-- [ ] Uber [Zap](https://github.com/uber-go/zap) - 实现为名为 zap-log 的模块。
-- [ ] [logrus](https://github.com/sirupsen/logrus) - 实现为名为 logrus-log 的模块。
+已实现以下日志框架的适配：
+- [x] Uber [Zap](https://github.com/uber-go/zap) - 通过 [zap-log](https://github.com/go-kita/zap-log) 适配。
+- [x] [logrus](https://github.com/sirupsen/logrus) - 通过 [logrus-log](https://github.com/go-kita/logrus-log) 适配。
 
 ## Features
 

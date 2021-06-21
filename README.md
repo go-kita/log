@@ -17,11 +17,9 @@ This module provides a simple logging interface which is easy to use and impleme
 It also provides a usable implementation based on the `log` package of the Go
 SDK.
 
-The following logging frameworks are planned to be adapted:
-- [ ] Uber [Zap](https://github.com/uber-go/zap) -
-  adapt with a module named zap-log
-- [ ] [logrus](https://github.com/sirupsen/logrus) -
-  adapt with a module named logrus-log
+The following logging frameworks are adapted:
+- [x] Uber [Zap](https://github.com/uber-go/zap) - adapt via [zap-log](https://github.com/go-kita/zap-log) .
+- [x] [logrus](https://github.com/sirupsen/logrus) - adapt via [logrus-log](https://github.com/go-kita/logrus-log) .
 
 ## Features
 - [x] Print message via the Print-like function family: `Print`,`Printf`,`Println`
